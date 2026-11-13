@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vimeo hover embeds</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://player.vimeo.com/api/player.js"></script>
+<style>
+  :root {
+    --ink: #1c1d1a;
+    --muted: #6b6d66;
+    --paper: #f5f2ea;
+    --accent: #2f6b4f;      /* swap for the NGO's brand colour */
+    --ease: cubic-bezier(.2, .8, .2, 1);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.65 Inter, system-ui, sans-serif;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 64px 24px 120px; }
+  h1, h2 { font-family: Fraunces, Georgia, serif; font-weight: 300; letter-spacing: -.02em; }
+  h1 { font-size: clamp(40px, 6vw, 72px); line-height: 1.02; margin: 0 0 12px; }
+  h2 { font-size: 34px; margin: 72px 0 8px; clear: both; }
+  .lede { color: var(--muted); max-width: 60ch; margin: 0 0 48px; }
+  .hint { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; }
+
+  /* ---------- 1. Floated, resizable card that text wraps around ---------- */
+  .vcard {
+    --w: 420px;                       /* base width, changed by the resize handle */
+    position: relative;
+    width: min(var(--w), 100%);
+    margin: 6px 32px 20px 0;
+    float: left;
+    shape-outside: margin-box;
+    transition: width .6s var(--ease), margin .6s var(--ease);
+    z-index: 1;
+  }
+  .vcard.right { float: right; margin: 6px 0 20px 32px; }
+  .vcard:hover, .vcard.is-playing { width: min(calc(var(--w) * 1.18), 100%); }
+  .vcard.is-resizing { transition: none; }
+
+  .vframe {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #111;
+    box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 40px -12px rgba(0,0,0,.35);
+    transition: border-radius .6s var(--ease), box-shadow .6s var(--ease);
+  }
+  .vcard:hover .vframe { border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,.1), 0 30px 70px -20px rgba(0,0,0,.5); }
+  .vframe iframe {
+    position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+    pointer-events: none;            /* hover goes to the card, not Vimeo */
+  }
+  /* veil fades out once playing, so the paused state looks intentional */
+  .vframe::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 50%, rgba(0,0,0,.55));
+    transition: opacity .5s;
+  }
+  .is-playing .vframe::after { opacity: 0; }
+
+  .play-dot {
+    position: absolute; left: 16px; bottom: 14px; z-index: 2;
+    display: flex; align-items: center; gap: 8px;
+    color: #fff; font-size: 12px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+    transition: opacity .4s, transform .4s var(--ease);
+  }
+  .play-dot::before {
+    content: ""; width: 0; height: 0;
+    border-left: 10px solid #fff; border-top: 6px solid transparent; border-bottom: 6px solid transparent;
+  }
+  .is-playing .play-dot { opacity: 0; transform: translateY(6px); }
+
+  .sound {
+    position: absolute; right: 12px; top: 12px; z-index: 3;
+    border: 0; border-radius: 999px; padding: 6px 12px;
+    background: rgba(255,255,255,.88); color: var(--ink);
+    font: 600 11px Inter, sans-serif; letter-spacing: .1em; text-transform: uppercase;
+    cursor: pointer; opacity: 0; transform: translateY(-6px);
+    transition: opacity .3s, transform .3s var(--ease);
+  }
+  .vcard:hover .sound, .reel:hover .sound, .is-playing .sound { opacity: 1; transform: none; }
+
+  /* resize handle */
+  .grip {
+    position: absolute; right: -8px; bottom: -8px; z-index: 4;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--paper); border: 1.5px solid var(--ink);
+    cursor: nwse-resize; touch-action: none;
+    display: grid; place-items: center;
+    opacity: 0; transition: opacity .3s;
+  }
+  .grip::before { content: ""; width: 8px; height: 8px; border-right: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); }
+  .vcard.right .grip { right: auto; left: -8px; cursor: nesw-resize; }
+  .vcard.right .grip::before { border-right: 0; border-left: 1.5px solid var(--ink); }
+  .vcard:hover .grip, .vcard.is-resizing .grip { opacity: 1; }
+  .size-tag {
+    position: absolute; right: 26px; bottom: -28px; font-size: 11px; color: var(--muted);
+    font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .2s;
+  }
+  .is-resizing .size-tag { opacity: 1; }
+
+  /* caption that unfolds under the video */
+  .cap { overflow: hidden; }
+  .cap-title {
+    font-family: Fraunces, serif; font-size: 22px; line-height: 1.2; margin: 14px 0 0;
+    letter-spacing: -.01em; transition: letter-spacing .7s var(--ease), color .4s;
+  }
+  .vcard:hover .cap-title { letter-spacing: .01em; color: var(--accent); }
+  .cap-body {
+    display: grid; grid-template-rows: 0fr;
+    transition: grid-template-rows .6s var(--ease);
+  }
+  .cap-body > div { overflow: hidden; }
+  .cap-body p { margin: 6px 0 0; font-size: 14px; color: var(--muted); opacity: 0; transform: translateY(-8px); transition: opacity .5s .1s, transform .6s var(--ease) .1s; }
+  .vcard:hover .cap-body, .vcard.is-playing .cap-body { grid-template-rows: 1fr; }
+  .vcard:hover .cap-body p, .vcard.is-playing .cap-body p { opacity: 1; transform: none; }
+
+  /* words that spread out around the video */
+  .orbit {
+    position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    display: flex; align-items: center; justify-content: center;
+    font-family: Fraunces, serif; font-size: clamp(22px, 3.2vw, 36px); color: #fff; font-weight: 600;
+  }
+  .orbit span {
+    display: inline-block; opacity: 0; transform: translateY(14px) scale(.9);
+    transition: opacity .45s, transform .7s var(--ease);
+    text-shadow: 0 2px 20px rgba(0,0,0,.4); margin: 0 .12em;
+  }
+  .vcard:hover .orbit span { opacity: 1; transform: none; }
+  .is-playing .orbit span { opacity: 0; transition-delay: 1.4s !important; } /* words linger, then clear */
+
+  .prose p { margin: 0 0 1.1em; }
+  .prose p:first-of-type::first-letter {
+    font-family: Fraunces, serif; float: left; font-size: 4.2em; line-height: .85; padding: 6px 10px 0 0; color: var(--accent);
+  }
+  .clearfix::after { content: ""; display: table; clear: both; }
+
+  /* ---------- 2. Expanding reel strip ---------- */
+  .reels { --h: 380px; display: flex; gap: 12px; height: var(--h); margin-top: 16px; }
+  .reel {
+    position: relative; flex: 1 1 0; min-width: 0;
+    border-radius: 16px; overflow: hidden; background: #111; color: #fff;
+    transition: flex-grow .8s var(--ease), border-radius .6s var(--ease);
+    cursor: pointer;
+  }
+  .reels:hover .reel { flex-grow: .7; }
+  .reels .reel:hover { flex-grow: 3.2; border-radius: 8px; }
+  .reel iframe {
+    position: absolute; top: 50%; left: 50%; border: 0; pointer-events: none;
+    height: 100%; width: max(100%, calc(var(--h) * 16 / 9));
+    transform: translate(-50%, -50%);
+  }
+  .reel::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(0deg, rgba(0,0,0,.75), transparent 60%);
+  }
+  .reel-label {
+    position: absolute; left: 20px; right: 20px; bottom: 18px; z-index: 2;
+  }
+  .reel-num { font-size: 12px; letter-spacing: .18em; opacity: .7; }
+  .reel-title {
+    font-family: Fraunces, serif; font-size: 26px; line-height: 1.1; margin: 4px 0 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: font-size .6s var(--ease);
+  }
+  .reel:hover .reel-title { font-size: 34px; white-space: normal; }
+  .reel-more { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .6s var(--ease) .15s; }
+  .reel-more > div { overflow: hidden; }
+  .reel:hover .reel-more { grid-template-rows: 1fr; }
+  .reel-more p { margin: 8px 0 0; font-size: 14px; max-width: 46ch; opacity: .85; }
+  .stat { display: flex; gap: 22px; margin-top: 12px; }
+  .stat b { display: block; font: 600 28px Fraunces, serif; font-variant-numeric: tabular-nums; }
+  .stat small { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; opacity: .7; }
+
+  @media (max-width: 760px) {
+    .vcard, .vcard.right { float: none; width: 100% !important; margin: 0 0 24px; }
+    .grip { display: none; }
+    .reels { flex-direction: column; height: auto; }
+    .reel { height: 220px; flex: none; }
+    .reels:hover .reel, .reels .reel:hover { flex-grow: 0; }
+    .reel iframe { width: max(100%, calc(220px * 16 / 9)); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="hint">Prototype · hover to play · drag the corner to resize</p>
+  <h1>Stories from the field</h1>
+  <p class="lede">Vimeo embeds that wake up on hover, grow into the page, and let the text flow around them. Swap the <code>data-vimeo-id</code> values for your own videos.</p>
+
+  <!-- ============ 1. Floated cards inside prose ============ -->
+  <article class="prose clearfix">
+    <figure class="vcard" data-vimeo-id="439455295" style="--w: 440px">
+      <div class="vframe">
+        <div class="orbit"><span>Our</span><span>people,</span><span>in</span><span>their</span><span>words</span></div>
+        <span class="play-dot">Hover to play</span>
+        <button class="sound" type="button">Sound off</button>
+      </div>
+      <figcaption class="cap">
+        <div class="cap-title">Why trust matters on the farm</div>
+        <div class="cap-body"><div><p>Site managers talk about what changed after the last Great Place to Work survey. 2 min.</p></div></div>
+      </figcaption>
+      <span class="grip" aria-label="Resize video" role="slider" tabindex="0"></span>
+      <span class="size-tag"></span>
+    </figure>
+
+    <p>Placeholder copy so you can watch the text reflow. When you hover the video it widens, and because the card is floated with <code>shape-outside</code>, every line around it moves out of the way in real time. Drag the round handle in the corner and the paragraph re-wraps as you go, with the video locked to 16:9.</p>
+    <p>On phones there's no hover, so each video plays muted while it's on screen and pauses when you scroll past. The caption underneath unfolds when the video plays, and the words over the frame stay for a moment before clearing so they don't sit on top of the footage.</p>
+    <p>Each card is one <code>&lt;figure&gt;</code> with a <code>data-vimeo-id</code> attribute. The script finds them, injects a muted, chromeless Vimeo player and wires up the hover, resize and sound toggle. Nothing else is needed per video.</p>
+
+    <figure class="vcard right" data-vimeo-id="791653947" style="--w: 360px">
+      <div class="vframe">
+        <div class="orbit"><span>One</span><span>year</span><span>on</span></div>
+        <span class="play-dot">Hover to play</span>
+        <button class="sound" type="button">Sound off</button>
+      </div>
+      <figcaption class="cap">
+        <div class="cap-title">The survey, one year on</div>
+        <div class="cap-body"><div><p>Scores by site, and what the teams did about them.</p></div></div>
+      </figcaption>
+      <span class="grip" aria-label="Resize video" role="slider" tabindex="0"></span>
+      <span class="size-tag"></span>
+    </figure>
+
+    <p>This card floats right, so its handle sits on the left corner and drags the other way. Any number of cards can sit in one article, and each one remembers its own width.</p>
+    <p>More filler so the wrap is visible on wide screens. Real copy would go here: a short intro to each farm, a quote from a worker, or a link out to the full D3 metrics page so viewers can go from the video to the numbers behind it.</p>
+    <p>One last paragraph so the second video has something to wrap around at bigger sizes. Try dragging it to the full column width, then back down.</p>
+  </article>
+
+  <!-- ============ 2. Expanding reel strip ============ -->
+  <h2>Meet the sites</h2>
+  <p class="lede">A strip of videos: hover one and it takes over the row, plays, and opens up its details.</p>
+
+  <section class="reels">
+    <div class="reel" data-vimeo-id="819365353">
+      <button class="sound" type="button">Sound off</button>
+      <div class="reel-label">
+        <div class="reel-num">01</div>
+        <div class="reel-title">Farm North</div>
+        <div class="reel-more"><div>
+          <p>Placeholder line on what makes this site different.</p>
+          <div class="stat"><div><b>86%</b><small>Trust index</small></div><div><b>142</b><small>Staff</small></div></div>
+        </div></div>
+      </div>
+    </div>
+    <div class="reel" data-vimeo-id="1068212107">
+      <button class="sound" type="button">Sound off</button>
+      <div class="reel-label">
+        <div class="reel-num">02</div>
+        <div class="reel-title">Farm East</div>
+        <div class="reel-more"><div>
+          <p>Placeholder line on what makes this site different.</p>
+          <div class="stat"><div><b>79%</b><small>Trust index</small></div><div><b>98</b><small>Staff</small></div></div>
+        </div></div>
+      </div>
+    </div>
+    <div class="reel" data-vimeo-id="1126798215">
+      <button class="sound" type="button">Sound off</button>
+      <div class="reel-label">
+        <div class="reel-num">03</div>
+        <div class="reel-title">Farm South</div>
+        <div class="reel-more"><div>
+          <p>Placeholder line on what makes this site different.</p>
+          <div class="stat"><div><b>91%</b><small>Trust index</small></div><div><b>63</b><small>Staff</small></div></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+  <section class="reels">
+    <div class="reel" data-vimeo-id="626626866">
+      <button class="sound" type="button">Sound off</button>
+      <div class="reel-label">
+        <div class="reel-num">04</div>
+        <div class="reel-title">Farm West</div>
+        <div class="reel-more"><div>
+          <p>Placeholder line on what makes this site different.</p>
+          <div class="stat"><div><b>86%</b><small>Trust index</small></div><div><b>142</b><small>Staff</small></div></div>
+        </div></div>
+      </div>
+    </div>
+    <div class="reel" data-vimeo-id="793430030">
+      <button class="sound" type="button">Sound off</button>
+      <div class="reel-label">
+        <div class="reel-num">05</div>
+        <div class="reel-title">Farm Central</div>
+        <div class="reel-more"><div>
+          <p>Placeholder line on what makes this site different.</p>
+          <div class="stat"><div><b>79%</b><small>Trust index</small></div><div><b>98</b><small>Staff</small></div></div>
+        </div></div>
+      </div>
+    </div>
+    <div class="reel" data-vimeo-id="386423621">
+      <button class="sound" type="button">Sound off</button>
+      <div class="reel-label">
+        <div class="reel-num">06</div>
+        <div class="reel-title">Farm Coast</div>
+        <div class="reel-more"><div>
+          <p>Placeholder line on what makes this site different.</p>
+          <div class="stat"><div><b>91%</b><small>Trust index</small></div><div><b>63</b><small>Staff</small></div></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const canHover = matchMedia('(hover: hover)').matches;
+
+  // Build a muted, chromeless Vimeo iframe for an element.
+  function mountPlayer(host, el) {
+    const id = el.dataset.vimeoId;
+    const params = new URLSearchParams({
+      muted: 1, controls: 0, loop: 1, autopause: 0,
+      title: 0, byline: 0, portrait: 0, dnt: 1, playsinline: 1
+    });
+    const iframe = document.createElement('iframe');
+    iframe.src = `https://player.vimeo.com/video/${id}?${params}`;
+    iframe.allow = 'autoplay; fullscreen; picture-in-picture';
+    iframe.title = el.querySelector('.cap-title, .reel-title')?.textContent || 'Video';
+    iframe.loading = 'lazy';
+    host.prepend(iframe);
+    return new Vimeo.Player(iframe);
+  }
+
+  function wire(el, host) {
+    const player = mountPlayer(host, el);
+    const sound = el.querySelector('.sound');
+    let wantPlay = false;
+
+    const play = () => {
+      wantPlay = true;
+      player.play().then(() => wantPlay && el.classList.add('is-playing')).catch(() => {});
+    };
+    const pause = () => {
+      wantPlay = false;
+      el.classList.remove('is-playing');
+      player.pause().catch(() => {});
+    };
+
+    if (canHover) {
+      el.addEventListener('mouseenter', play);
+      el.addEventListener('mouseleave', pause);
+    } else {
+      // Touch: play while mostly on screen.
+      new IntersectionObserver(([e]) => e.intersectionRatio > .6 ? play() : pause(),
+        { threshold: [0, .6, 1] }).observe(el);
+    }
+
+    sound?.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const muted = await player.getMuted();
+      await player.setMuted(!muted);
+      if (muted) await player.setVolume(1);
+      sound.textContent = muted ? 'Sound on' : 'Sound off';
+      if (muted) play();
+    });
+  }
+
+  // Floated cards
+  document.querySelectorAll('.vcard').forEach(card => {
+    wire(card, card.querySelector('.vframe'));
+
+    // stagger the overlay words
+    card.querySelectorAll('.orbit span').forEach((s, i) => s.style.transitionDelay = `${i * 70}ms`);
+
+    // drag-to-resize
+    const grip = card.querySelector('.grip');
+    const tag = card.querySelector('.size-tag');
+    const isRight = card.classList.contains('right');
+    const min = 220;
+
+    const setW = w => {
+      const max = card.parentElement.clientWidth;
+      w = Math.max(min, Math.min(w, max));
+      card.style.setProperty('--w', `${Math.round(w)}px`);
+      tag.textContent = `${Math.round(w)} × ${Math.round(w * 9 / 16)}`;
+    };
+
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      grip.setPointerCapture(e.pointerId);
+      card.classList.add('is-resizing');
+      const startX = e.clientX;
+      const startW = card.getBoundingClientRect().width;
+      const move = ev => setW(startW + (ev.clientX - startX) * (isRight ? -1 : 1));
+      const up = () => {
+        card.classList.remove('is-resizing');
+        grip.removeEventListener('pointermove', move);
+        grip.removeEventListener('pointerup', up);
+      };
+      grip.addEventListener('pointermove', move);
+      grip.addEventListener('pointerup', up);
+    });
+
+    // keyboard resize
+    grip.addEventListener('keydown', e => {
+      const cur = parseFloat(getComputedStyle(card).getPropertyValue('--w'));
+      const step = e.shiftKey ? 60 : 20;
+      const grow = ['ArrowUp', isRight ? 'ArrowLeft' : 'ArrowRight'];
+      const shrink = ['ArrowDown', isRight ? 'ArrowRight' : 'ArrowLeft'];
+      const dir = grow.includes(e.key) ? 1 : shrink.includes(e.key) ? -1 : 0;
+      if (dir) { e.preventDefault(); card.classList.add('is-resizing'); setW(cur + dir * step); }
+    });
+    grip.addEventListener('keyup', () => card.classList.remove('is-resizing'));
+    grip.addEventListener('blur', () => card.classList.remove('is-resizing'));
+  });
+
+  // Reel strip
+  document.querySelectorAll('.reel').forEach(reel => wire(reel, reel));
+})();
+</script>
+</body>
+</html>
